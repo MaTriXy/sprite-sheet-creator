@@ -1146,6 +1146,7 @@ export default function Home() {
                 id="prompt"
                 className="text-input"
                 rows={3}
+                spellCheck={false}
                 placeholder="Describe your pixel art character (e.g., 'pixel art knight with sword and shield, medieval armor, 32-bit style')"
                 value={characterPrompt}
                 onChange={(e) => setCharacterPrompt(e.target.value)}
@@ -1265,6 +1266,7 @@ export default function Home() {
                   id="promptOptional"
                   className="text-input"
                   rows={2}
+                  spellCheck={false}
                   placeholder="Any additional instructions for the pixel art conversion..."
                   value={characterPrompt}
                   onChange={(e) => setCharacterPrompt(e.target.value)}
