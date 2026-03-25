@@ -66,13 +66,121 @@ Keep movements SUBTLE - this is a gentle breathing/idle loop, not dramatic motio
 
 Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right.`;
 
-type SpriteType = "walk" | "jump" | "attack" | "idle";
+// Isometric (top-down RPG) sprite prompts
+const WALK_DOWN_SPRITE_PROMPT = `Create a 4-frame pixel art walk cycle sprite sheet of this character walking DOWNWARD (toward the camera) in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is walking toward the viewer (south/down).
+
+Top row (frames 1-2):
+Frame 1 (top-left): Left foot forward stride, arms swinging naturally
+Frame 2 (top-right): Feet together, passing/transition pose
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Right foot forward stride, arms swinging naturally
+Frame 4 (bottom-right): Feet together, passing/transition back
+
+We see the character's front/face. Top-down 3/4 view - we see the top of their head slightly. This creates a smooth looping walk cycle.
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames.`;
+
+const WALK_UP_SPRITE_PROMPT = `Create a 4-frame pixel art walk cycle sprite sheet of this character walking UPWARD (away from the camera) in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is walking away from the viewer (north/up).
+
+Top row (frames 1-2):
+Frame 1 (top-left): Left foot forward stride, arms swinging naturally
+Frame 2 (top-right): Feet together, passing/transition pose
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Right foot forward stride, arms swinging naturally
+Frame 4 (bottom-right): Feet together, passing/transition back
+
+We see the character's back. Top-down 3/4 view - we see the top of their head and back. This creates a smooth looping walk cycle.
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames.`;
+
+const WALK_SIDE_SPRITE_PROMPT = `Create a 4-frame pixel art walk cycle sprite sheet of this character WALKING TO THE RIGHT in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is FACING RIGHT and WALKING RIGHT.
+
+Top row (frames 1-2):
+Frame 1 (top-left): Right leg forward, left leg back - stride position, arms swinging
+Frame 2 (top-right): Legs close together, passing/crossing - transition pose
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Left leg forward, right leg back - opposite stride, arms swinging
+Frame 4 (bottom-right): Legs close together, passing/crossing - transition back
+
+We see the character's RIGHT-facing side profile from a top-down 3/4 overhead angle. This creates a smooth looping walk cycle.
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing RIGHT.`;
+
+// Isometric attack prompts
+const ATTACK_DOWN_SPRITE_PROMPT = `Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking DOWNWARD (toward the camera) in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is facing toward the viewer (south/down) and performing an attack.
+
+Top row (frames 1-2):
+Frame 1 (top-left): Wind-up/anticipation - preparing to strike, pulling back weapon or gathering energy
+Frame 2 (top-right): Attack in motion - the strike or spell being unleashed downward/toward camera
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Impact/peak - maximum extension of attack, full power
+Frame 4 (bottom-right): Recovery - returning to ready stance
+
+We see the character's front/face. Top-down 3/4 view. The attack should fit the character's design (sword, magic, punch, etc).
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Make the attack visually dynamic.`;
+
+const ATTACK_UP_SPRITE_PROMPT = `Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking UPWARD (away from the camera) in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+I've also sent you a reference of the same character's front-facing attack. Use the EXACT SAME attack type, weapon, and visual effects - just show it from behind.
+
+Arrange the 4 frames in a 2x2 grid on white background. The character is facing away from the viewer (north/up) and performing the same attack.
+
+Top row (frames 1-2):
+Frame 1 (top-left): Wind-up/anticipation - same motion as reference but seen from behind
+Frame 2 (top-right): Attack in motion - the strike unleashed upward/away from camera
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Impact/peak - maximum extension, same attack type as reference
+Frame 4 (bottom-right): Recovery - returning to ready stance
+
+We see the character's back. Top-down 3/4 view. MUST use the same attack style as the reference image.
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames.`;
+
+const ATTACK_SIDE_SPRITE_PROMPT = `Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking SIDEWAYS (to the right) in a top-down isometric RPG perspective (3/4 overhead view, like Stardew Valley or Pokemon).
+
+I've also sent you a reference of the same character's front-facing attack. Use the EXACT SAME attack type, weapon, and visual effects - just show it from the side profile.
+
+Arrange the 4 frames in a 2x2 grid on white background. The character faces RIGHT and performs the same attack.
+
+Top row (frames 1-2):
+Frame 1 (top-left): Wind-up/anticipation - same motion as reference but from side view, facing right
+Frame 2 (top-right): Attack in motion - the strike unleashed to the right
+
+Bottom row (frames 3-4):
+Frame 3 (bottom-left): Impact/peak - maximum extension, same attack type as reference
+Frame 4 (bottom-right): Recovery - returning to ready stance
+
+IMPORTANT: Show the character's SIDE PROFILE facing RIGHT. Top-down 3/4 overhead angle. MUST use the same attack style as the reference image.
+
+Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing RIGHT.`;
+
+type SpriteType = "walk" | "jump" | "attack" | "idle" | "walk-down" | "walk-up" | "walk-side" | "attack-down" | "attack-up" | "attack-side";
 
 const PROMPTS: Record<SpriteType, string> = {
   walk: WALK_SPRITE_PROMPT,
   jump: JUMP_SPRITE_PROMPT,
   attack: ATTACK_SPRITE_PROMPT,
   idle: IDLE_SPRITE_PROMPT,
+  "walk-down": WALK_DOWN_SPRITE_PROMPT,
+  "walk-up": WALK_UP_SPRITE_PROMPT,
+  "walk-side": WALK_SIDE_SPRITE_PROMPT,
+  "attack-down": ATTACK_DOWN_SPRITE_PROMPT,
+  "attack-up": ATTACK_UP_SPRITE_PROMPT,
+  "attack-side": ATTACK_SIDE_SPRITE_PROMPT,
 };
 
 const ASPECT_RATIOS: Record<SpriteType, string> = {
@@ -80,11 +188,17 @@ const ASPECT_RATIOS: Record<SpriteType, string> = {
   jump: "1:1",   // 2x2 grid
   attack: "21:9", // 2x2 grid - ultra-wide for big spell effects
   idle: "1:1",   // 2x2 grid
+  "walk-down": "1:1",
+  "walk-up": "1:1",
+  "walk-side": "1:1",
+  "attack-down": "1:1",
+  "attack-up": "1:1",
+  "attack-side": "1:1",
 };
 
 export async function POST(request: NextRequest) {
   try {
-    const { characterImageUrl, type = "walk", customPrompt } = await request.json();
+    const { characterImageUrl, type = "walk", customPrompt, referenceImageUrls } = await request.json();
 
     if (!characterImageUrl) {
       return NextResponse.json(
@@ -97,10 +211,13 @@ export async function POST(request: NextRequest) {
     const prompt = customPrompt || PROMPTS[spriteType] || PROMPTS.walk;
     const aspectRatio = ASPECT_RATIOS[spriteType] || ASPECT_RATIOS.walk;
 
+    // Build image_urls: character image + any reference images (e.g. attack-down for consistency)
+    const imageUrls = [characterImageUrl, ...(referenceImageUrls || [])];
+
     const result = await fal.subscribe("fal-ai/nano-banana-pro/edit", {
       input: {
         prompt,
-        image_urls: [characterImageUrl],
+        image_urls: imageUrls,
         num_images: 1,
         aspect_ratio: aspectRatio,
         output_format: "png",

@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 
-// Dynamically import PixiSandbox to avoid SSR issues
+// Dynamically import sandbox components to avoid SSR issues
 const PixiSandbox = lazy(() => import("./components/PixiSandbox"));
+const IsometricSandbox = lazy(() => import("./components/IsometricSandbox"));
 
 // Fal Logo SVG component
 const FalLogo = ({ className = "", size = 32 }: { className?: string; size?: number }) => (
@@ -25,6 +26,7 @@ const FalSpinner = ({ size = 48 }: { size?: number }) => (
 );
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type GameMode = "side-scroller" | "isometric";
 
 interface BoundingBox {
   x: number;
@@ -82,6 +84,9 @@ export default function Home() {
   // Step management
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+
+  // Game mode: side-scroller or isometric
+  const [gameMode, setGameMode] = useState<GameMode>("side-scroller");
 
   // Step 1: Character generation
   const [characterInputMode, setCharacterInputMode] = useState<"text" | "image">("text");
@@ -161,6 +166,23 @@ export default function Home() {
   }>({ layer1Url: null, layer2Url: null, layer3Url: null });
   const [isGeneratingBackground, setIsGeneratingBackground] = useState(false);
 
+  // Isometric map
+  const [isometricMapUrl, setIsometricMapUrl] = useState<string | null>(null);
+
+  // Isometric attack sprites (3 directions: down, up, side — right is flipped side)
+  const [isoAttackDownUrl, setIsoAttackDownUrl] = useState<string | null>(null);
+  const [isoAttackUpUrl, setIsoAttackUpUrl] = useState<string | null>(null);
+  const [isoAttackSideUrl, setIsoAttackSideUrl] = useState<string | null>(null);
+  const [isoAttackDownBgUrl, setIsoAttackDownBgUrl] = useState<string | null>(null);
+  const [isoAttackUpBgUrl, setIsoAttackUpBgUrl] = useState<string | null>(null);
+  const [isoAttackSideBgUrl, setIsoAttackSideBgUrl] = useState<string | null>(null);
+  const [isoAttackDownFrames, setIsoAttackDownFrames] = useState<Frame[]>([]);
+  const [isoAttackUpFrames, setIsoAttackUpFrames] = useState<Frame[]>([]);
+  const [isoAttackSideFrames, setIsoAttackSideFrames] = useState<Frame[]>([]);
+  const [isoAttackDownDimensions, setIsoAttackDownDimensions] = useState({ width: 0, height: 0 });
+  const [isoAttackUpDimensions, setIsoAttackUpDimensions] = useState({ width: 0, height: 0 });
+  const [isoAttackSideDimensions, setIsoAttackSideDimensions] = useState({ width: 0, height: 0 });
+
   // Error handling
   const [error, setError] = useState<string | null>(null);
 
@@ -233,32 +255,81 @@ export default function Home() {
   }, [idleGridCols, idleGridRows, idleSpriteSheetDimensions.width]);
 
   // Extract walk frames when divider positions change
+  // Guard: wait for dividers to be initialized (non-empty) before extracting
   useEffect(() => {
-    if (walkBgRemovedUrl && walkSpriteSheetDimensions.width > 0) {
+    if (walkBgRemovedUrl && walkSpriteSheetDimensions.width > 0 && walkVerticalDividers.length > 0 && walkHorizontalDividers.length > 0) {
       extractWalkFrames();
     }
   }, [walkBgRemovedUrl, walkVerticalDividers, walkHorizontalDividers, walkSpriteSheetDimensions]);
 
   // Extract jump frames when divider positions change
   useEffect(() => {
-    if (jumpBgRemovedUrl && jumpSpriteSheetDimensions.width > 0) {
+    if (jumpBgRemovedUrl && jumpSpriteSheetDimensions.width > 0 && jumpVerticalDividers.length > 0 && jumpHorizontalDividers.length > 0) {
       extractJumpFrames();
     }
   }, [jumpBgRemovedUrl, jumpVerticalDividers, jumpHorizontalDividers, jumpSpriteSheetDimensions]);
 
   // Extract attack frames when divider positions change
   useEffect(() => {
-    if (attackBgRemovedUrl && attackSpriteSheetDimensions.width > 0) {
+    if (attackBgRemovedUrl && attackSpriteSheetDimensions.width > 0 && attackVerticalDividers.length > 0 && attackHorizontalDividers.length > 0) {
       extractAttackFrames();
     }
   }, [attackBgRemovedUrl, attackVerticalDividers, attackHorizontalDividers, attackSpriteSheetDimensions]);
 
   // Extract idle frames when divider positions change
   useEffect(() => {
-    if (idleBgRemovedUrl && idleSpriteSheetDimensions.width > 0) {
+    if (idleBgRemovedUrl && idleSpriteSheetDimensions.width > 0 && idleVerticalDividers.length > 0 && idleHorizontalDividers.length > 0) {
       extractIdleFrames();
     }
   }, [idleBgRemovedUrl, idleVerticalDividers, idleHorizontalDividers, idleSpriteSheetDimensions]);
+
+  // Auto-extract isometric attack frames (always 2x2 grid, no manual dividers)
+  const autoExtractFrames = useCallback((
+    bgRemovedUrl: string,
+    setFrames: (frames: Frame[]) => void,
+    setDimensions: (dims: { width: number; height: number }) => void,
+  ) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      setDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+      const frames: Frame[] = [];
+      const cols = 2, rows = 2;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const startX = Math.round((col / cols) * img.width);
+          const endX = Math.round(((col + 1) / cols) * img.width);
+          const startY = Math.round((row / rows) * img.height);
+          const endY = Math.round(((row + 1) / rows) * img.height);
+          const frameWidth = endX - startX;
+          const frameHeight = endY - startY;
+          const canvas = document.createElement("canvas");
+          canvas.width = frameWidth;
+          canvas.height = frameHeight;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(img, startX, startY, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
+            const contentBounds = getContentBounds(ctx, frameWidth, frameHeight);
+            frames.push({ dataUrl: canvas.toDataURL("image/png"), x: startX, y: startY, width: frameWidth, height: frameHeight, contentBounds });
+          }
+        }
+      }
+      setFrames(frames);
+    };
+    img.src = bgRemovedUrl;
+  }, []);
+
+  useEffect(() => {
+    if (isoAttackDownBgUrl) autoExtractFrames(isoAttackDownBgUrl, setIsoAttackDownFrames, setIsoAttackDownDimensions);
+  }, [isoAttackDownBgUrl, autoExtractFrames]);
+
+  useEffect(() => {
+    if (isoAttackUpBgUrl) autoExtractFrames(isoAttackUpBgUrl, setIsoAttackUpFrames, setIsoAttackUpDimensions);
+  }, [isoAttackUpBgUrl, autoExtractFrames]);
+
+  useEffect(() => {
+    if (isoAttackSideBgUrl) autoExtractFrames(isoAttackSideBgUrl, setIsoAttackSideFrames, setIsoAttackSideDimensions);
+  }, [isoAttackSideBgUrl, autoExtractFrames]);
 
   // Animation loop (uses walk frames for preview)
   useEffect(() => {
@@ -390,52 +461,111 @@ export default function Home() {
     setIsGeneratingSpriteSheet(true);
 
     try {
-      // Send parallel requests for walk, jump, attack, and idle sprite sheets
-      const [walkResponse, jumpResponse, attackResponse, idleResponse] = await Promise.all([
-        fetch("/api/generate-sprite-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ characterImageUrl, type: "walk" }),
-        }),
-        fetch("/api/generate-sprite-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ characterImageUrl, type: "jump" }),
-        }),
-        fetch("/api/generate-sprite-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ characterImageUrl, type: "attack" }),
-        }),
-        fetch("/api/generate-sprite-sheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ characterImageUrl, type: "idle" }),
-        }),
-      ]);
+      if (gameMode === "isometric") {
+        // Phase 1: Generate 3 walk directions + attack-down in parallel
+        const [downResponse, upResponse, sideResponse, atkDownResponse] = await Promise.all([
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "walk-down" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "walk-up" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "walk-side" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "attack-down" }),
+          }),
+        ]);
 
-      const walkData = await walkResponse.json();
-      const jumpData = await jumpResponse.json();
-      const attackData = await attackResponse.json();
-      const idleData = await idleResponse.json();
+        const downData = await downResponse.json();
+        const upData = await upResponse.json();
+        const sideData = await sideResponse.json();
+        const atkDownData = await atkDownResponse.json();
 
-      if (!walkResponse.ok) {
-        throw new Error(walkData.error || "Failed to generate walk sprite sheet");
-      }
-      if (!jumpResponse.ok) {
-        throw new Error(jumpData.error || "Failed to generate jump sprite sheet");
-      }
-      if (!attackResponse.ok) {
-        throw new Error(attackData.error || "Failed to generate attack sprite sheet");
-      }
-      if (!idleResponse.ok) {
-        throw new Error(idleData.error || "Failed to generate idle sprite sheet");
+        if (!downResponse.ok) throw new Error(downData.error || "Failed to generate walk-down sprite sheet");
+        if (!upResponse.ok) throw new Error(upData.error || "Failed to generate walk-up sprite sheet");
+        if (!sideResponse.ok) throw new Error(sideData.error || "Failed to generate walk-side sprite sheet");
+        if (!atkDownResponse.ok) throw new Error(atkDownData.error || "Failed to generate attack-down sprite sheet");
+
+        // Walk slots: walk=down, jump=up, attack=side(left), idle=side(right, flipped in sandbox)
+        setWalkSpriteSheetUrl(downData.imageUrl);
+        setJumpSpriteSheetUrl(upData.imageUrl);
+        setAttackSpriteSheetUrl(sideData.imageUrl);
+        setIdleSpriteSheetUrl(sideData.imageUrl);
+        setIsoAttackDownUrl(atkDownData.imageUrl);
+
+        // Phase 2: Generate attack-up and attack-side using attack-down as reference for consistency
+        const [atkUpResponse, atkSideResponse] = await Promise.all([
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "attack-up", referenceImageUrls: [atkDownData.imageUrl] }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "attack-side", referenceImageUrls: [atkDownData.imageUrl] }),
+          }),
+        ]);
+
+        const atkUpData = await atkUpResponse.json();
+        const atkSideData = await atkSideResponse.json();
+
+        if (!atkUpResponse.ok) throw new Error(atkUpData.error || "Failed to generate attack-up sprite sheet");
+        if (!atkSideResponse.ok) throw new Error(atkSideData.error || "Failed to generate attack-side sprite sheet");
+
+        setIsoAttackUpUrl(atkUpData.imageUrl);
+        setIsoAttackSideUrl(atkSideData.imageUrl);
+      } else {
+        // Side-scroller: generate all 4 types
+        const [walkResponse, jumpResponse, attackResponse, idleResponse] = await Promise.all([
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "walk" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "jump" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "attack" }),
+          }),
+          fetch("/api/generate-sprite-sheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ characterImageUrl, type: "idle" }),
+          }),
+        ]);
+
+        const walkData = await walkResponse.json();
+        const jumpData = await jumpResponse.json();
+        const attackData = await attackResponse.json();
+        const idleData = await idleResponse.json();
+
+        if (!walkResponse.ok) throw new Error(walkData.error || "Failed to generate walk sprite sheet");
+        if (!jumpResponse.ok) throw new Error(jumpData.error || "Failed to generate jump sprite sheet");
+        if (!attackResponse.ok) throw new Error(attackData.error || "Failed to generate attack sprite sheet");
+        if (!idleResponse.ok) throw new Error(idleData.error || "Failed to generate idle sprite sheet");
+
+        setWalkSpriteSheetUrl(walkData.imageUrl);
+        setJumpSpriteSheetUrl(jumpData.imageUrl);
+        setAttackSpriteSheetUrl(attackData.imageUrl);
+        setIdleSpriteSheetUrl(idleData.imageUrl);
       }
 
-      setWalkSpriteSheetUrl(walkData.imageUrl);
-      setJumpSpriteSheetUrl(jumpData.imageUrl);
-      setAttackSpriteSheetUrl(attackData.imageUrl);
-      setIdleSpriteSheetUrl(idleData.imageUrl);
       setCompletedSteps((prev) => new Set([...prev, 1]));
       setCurrentStep(2);
     } catch (err) {
@@ -445,7 +575,27 @@ export default function Home() {
     }
   };
 
-  const [regeneratingSpriteSheet, setRegeneratingSpriteSheet] = useState<"walk" | "jump" | "attack" | "idle" | null>(null);
+  const [regeneratingSpriteSheet, setRegeneratingSpriteSheet] = useState<string | null>(null);
+
+  // Map internal slot names to API sprite types based on game mode
+  const getSpriteType = (slot: "walk" | "jump" | "attack" | "idle"): string => {
+    if (gameMode === "isometric") {
+      const map: Record<string, string> = { walk: "walk-down", jump: "walk-up", attack: "walk-side", idle: "walk-side" };
+      return map[slot];
+    }
+    return slot;
+  };
+
+  // Labels for display based on game mode
+  const getSheetLabel = (slot: "walk" | "jump" | "attack" | "idle"): string => {
+    if (gameMode === "isometric") {
+      // walk=down, jump=up, attack=side(right), idle=side(left is flipped right)
+      const map: Record<string, string> = { walk: "Walk Down", jump: "Walk Up", attack: "Walk Right", idle: "Walk Left" };
+      return map[slot];
+    }
+    const map: Record<string, string> = { walk: "Walk", jump: "Jump", attack: "Attack", idle: "Idle" };
+    return map[slot];
+  };
 
   const regenerateSpriteSheet = async (type: "walk" | "jump" | "attack" | "idle") => {
     if (!characterImageUrl) return;
@@ -457,7 +607,7 @@ export default function Home() {
       const response = await fetch("/api/generate-sprite-sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ characterImageUrl, type }),
+        body: JSON.stringify({ characterImageUrl, type: getSpriteType(type) }),
       });
 
       const data = await response.json();
@@ -472,11 +622,42 @@ export default function Home() {
         setJumpSpriteSheetUrl(data.imageUrl);
       } else if (type === "attack") {
         setAttackSpriteSheetUrl(data.imageUrl);
+        // In isometric mode, idle slot mirrors attack slot (walk-right = flipped walk-left)
+        if (gameMode === "isometric") setIdleSpriteSheetUrl(data.imageUrl);
       } else if (type === "idle") {
         setIdleSpriteSheetUrl(data.imageUrl);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to regenerate ${type} sprite sheet`);
+    } finally {
+      setRegeneratingSpriteSheet(null);
+    }
+  };
+
+  const regenerateIsoAttack = async (dir: "attack-down" | "attack-up" | "attack-side") => {
+    if (!characterImageUrl) return;
+
+    setError(null);
+    setRegeneratingSpriteSheet(dir);
+
+    try {
+      // attack-up and attack-side use attack-down as reference for consistency
+      const refUrls = dir !== "attack-down" && isoAttackDownUrl ? [isoAttackDownUrl] : undefined;
+
+      const response = await fetch("/api/generate-sprite-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ characterImageUrl, type: dir, referenceImageUrls: refUrls }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Failed to regenerate ${dir}`);
+
+      if (dir === "attack-down") setIsoAttackDownUrl(data.imageUrl);
+      else if (dir === "attack-up") setIsoAttackUpUrl(data.imageUrl);
+      else setIsoAttackSideUrl(data.imageUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to regenerate ${dir}`);
     } finally {
       setRegeneratingSpriteSheet(null);
     }
@@ -489,56 +670,48 @@ export default function Home() {
     setIsRemovingBg(true);
 
     try {
-      // Send parallel requests for all sprite sheets
-      const [walkResponse, jumpResponse, attackResponse, idleResponse] = await Promise.all([
-        fetch("/api/remove-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: walkSpriteSheetUrl }),
-        }),
-        fetch("/api/remove-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: jumpSpriteSheetUrl }),
-        }),
-        fetch("/api/remove-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: attackSpriteSheetUrl }),
-        }),
-        fetch("/api/remove-background", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: idleSpriteSheetUrl }),
-        }),
-      ]);
+      // Build list of URLs to remove backgrounds from
+      const bgRemovalUrls = [walkSpriteSheetUrl, jumpSpriteSheetUrl, attackSpriteSheetUrl, idleSpriteSheetUrl];
 
-      const walkData = await walkResponse.json();
-      const jumpData = await jumpResponse.json();
-      const attackData = await attackResponse.json();
-      const idleData = await idleResponse.json();
-
-      if (!walkResponse.ok) {
-        throw new Error(walkData.error || "Failed to remove walk background");
-      }
-      if (!jumpResponse.ok) {
-        throw new Error(jumpData.error || "Failed to remove jump background");
-      }
-      if (!attackResponse.ok) {
-        throw new Error(attackData.error || "Failed to remove attack background");
-      }
-      if (!idleResponse.ok) {
-        throw new Error(idleData.error || "Failed to remove idle background");
+      // In isometric mode, also remove bg from attack sheets
+      if (gameMode === "isometric" && isoAttackDownUrl && isoAttackUpUrl && isoAttackSideUrl) {
+        bgRemovalUrls.push(isoAttackDownUrl, isoAttackUpUrl, isoAttackSideUrl);
       }
 
-      setWalkBgRemovedUrl(walkData.imageUrl);
-      setJumpBgRemovedUrl(jumpData.imageUrl);
-      setAttackBgRemovedUrl(attackData.imageUrl);
-      setIdleBgRemovedUrl(idleData.imageUrl);
-      setWalkSpriteSheetDimensions({ width: walkData.width, height: walkData.height });
-      setJumpSpriteSheetDimensions({ width: jumpData.width, height: jumpData.height });
-      setAttackSpriteSheetDimensions({ width: attackData.width, height: attackData.height });
-      setIdleSpriteSheetDimensions({ width: idleData.width, height: idleData.height });
+      const responses = await Promise.all(
+        bgRemovalUrls.map((url) =>
+          fetch("/api/remove-background", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageUrl: url }),
+          })
+        )
+      );
+
+      const results = await Promise.all(responses.map((r) => r.json()));
+
+      // Check for errors
+      for (let i = 0; i < responses.length; i++) {
+        if (!responses[i].ok) throw new Error(results[i].error || "Failed to remove background");
+      }
+
+      // Set walk/jump/attack/idle bg removed URLs
+      setWalkBgRemovedUrl(results[0].imageUrl);
+      setJumpBgRemovedUrl(results[1].imageUrl);
+      setAttackBgRemovedUrl(results[2].imageUrl);
+      setIdleBgRemovedUrl(results[3].imageUrl);
+      setWalkSpriteSheetDimensions({ width: results[0].width, height: results[0].height });
+      setJumpSpriteSheetDimensions({ width: results[1].width, height: results[1].height });
+      setAttackSpriteSheetDimensions({ width: results[2].width, height: results[2].height });
+      setIdleSpriteSheetDimensions({ width: results[3].width, height: results[3].height });
+
+      // Set isometric attack bg removed URLs
+      if (gameMode === "isometric" && results.length >= 7) {
+        setIsoAttackDownBgUrl(results[4].imageUrl);
+        setIsoAttackUpBgUrl(results[5].imageUrl);
+        setIsoAttackSideBgUrl(results[6].imageUrl);
+      }
+
       setCompletedSteps((prev) => new Set([...prev, 2]));
       setCurrentStep(3);
     } catch (err) {
@@ -578,6 +751,37 @@ export default function Home() {
       setBackgroundMode("custom");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate background");
+    } finally {
+      setIsGeneratingBackground(false);
+    }
+  };
+
+  const generateIsometricMap = async () => {
+    if (!characterImageUrl) return;
+
+    setError(null);
+    setIsGeneratingBackground(true);
+
+    try {
+      const response = await fetch("/api/generate-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          characterImageUrl,
+          characterPrompt: characterPrompt || "pixel art game character",
+          mode: "isometric",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate isometric map");
+      }
+
+      setIsometricMapUrl(data.mapUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate isometric map");
     } finally {
       setIsGeneratingBackground(false);
     }
@@ -1108,6 +1312,12 @@ export default function Home() {
               className={`step-dot ${currentStep === internalStep ? "active" : ""} ${
                 completedSteps.has(internalStep) ? "completed" : ""
               }`}
+              style={{ cursor: completedSteps.has(internalStep) || currentStep === internalStep ? "pointer" : "default" }}
+              onClick={() => {
+                if (completedSteps.has(internalStep) || currentStep === internalStep) {
+                  setCurrentStep(internalStep as Step);
+                }
+              }}
             />
           );
         })}
@@ -1122,6 +1332,44 @@ export default function Home() {
             <span className="step-number">1</span>
             Generate Character
           </h2>
+
+          {/* Game mode toggle — segmented control */}
+          <div style={{ marginBottom: "1.5rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--text-tertiary)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Game Style</label>
+            <div style={{ display: "inline-flex", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border-color)" }}>
+              <button
+                onClick={() => setGameMode("side-scroller")}
+                style={{
+                  padding: "0.5rem 1.25rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  background: gameMode === "side-scroller" ? "var(--accent-color)" : "var(--bg-secondary)",
+                  color: gameMode === "side-scroller" ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                Side-Scroller
+              </button>
+              <button
+                onClick={() => setGameMode("isometric")}
+                style={{
+                  padding: "0.5rem 1.25rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  border: "none",
+                  borderLeft: "1px solid var(--border-color)",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  background: gameMode === "isometric" ? "var(--accent-color)" : "var(--bg-secondary)",
+                  color: gameMode === "isometric" ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                Isometric (RPG)
+              </button>
+            </div>
+          </div>
 
           {/* Input mode tabs */}
           <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
@@ -1330,7 +1578,11 @@ export default function Home() {
               {isGeneratingSpriteSheet && (
                 <div className="loading">
                   <FalSpinner />
-                  <span className="loading-text">Creating sprite sheets...</span>
+                  <span className="loading-text">
+                    {gameMode === "isometric"
+                      ? "Creating walk & attack sprite sheets (this takes a moment)..."
+                      : "Creating sprite sheets..."}
+                  </span>
                 </div>
               )}
             </>
@@ -1347,75 +1599,99 @@ export default function Home() {
           </h2>
 
           <p className="description-text">
-            Walk, jump, and attack sprite sheets have been generated. If poses don&apos;t look right, try regenerating.
+            {gameMode === "isometric"
+              ? "Directional walk & attack sprite sheets have been generated. If poses don't look right, try regenerating."
+              : "Walk, jump, and attack sprite sheets have been generated. If poses don\u0027t look right, try regenerating."}
           </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk (4 frames)</h4>
-              {walkSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "walk" ? 0.5 : 1 }}>
-                  <img src={walkSpriteSheetUrl} alt="Walk sprite sheet" />
+          {gameMode === "isometric" ? (
+            <>
+              {/* Walk sheets */}
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Walk Sprites</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "0.5rem" }}>
+                {(["walk", "jump", "attack"] as const).map((slot) => {
+                  const url = slot === "walk" ? walkSpriteSheetUrl : slot === "jump" ? jumpSpriteSheetUrl : attackSpriteSheetUrl;
+                  return (
+                    <div key={slot}>
+                      <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{getSheetLabel(slot)}</h4>
+                      {url && (
+                        <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === slot ? 0.5 : 1 }}>
+                          <img src={url} alt={`${getSheetLabel(slot)} sprite sheet`} />
+                        </div>
+                      )}
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => regenerateSpriteSheet(slot)}
+                        disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+                      >
+                        {regeneratingSpriteSheet === slot ? "Regenerating..." : `Regen`}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-tertiary)", fontStyle: "italic", marginBottom: "1.25rem" }}>
+                Walk Left is auto-flipped from Walk Right.
+              </p>
+
+              {/* Attack sheets */}
+              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Attack Sprites</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "0.5rem" }}>
+                {(["attack-down", "attack-up", "attack-side"] as const).map((dir) => {
+                  const url = dir === "attack-down" ? isoAttackDownUrl : dir === "attack-up" ? isoAttackUpUrl : isoAttackSideUrl;
+                  const label = dir === "attack-down" ? "Attack Down" : dir === "attack-up" ? "Attack Up" : "Attack Side";
+                  return (
+                    <div key={dir}>
+                      <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{label}</h4>
+                      {url && (
+                        <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === dir ? 0.5 : 1 }}>
+                          <img src={url} alt={`${label} sprite sheet`} />
+                        </div>
+                      )}
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => regenerateIsoAttack(dir)}
+                        disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+                      >
+                        {regeneratingSpriteSheet === dir ? "Regenerating..." : `Regen`}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-tertiary)", fontStyle: "italic", marginBottom: "1rem" }}>
+                Attack Left is auto-flipped from Attack Side.
+              </p>
+            </>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+              {(["walk", "jump", "attack", "idle"] as const).map((slot) => (
+                <div key={slot}>
+                  <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+                    {getSheetLabel(slot)} (4 frames)
+                  </h4>
+                  {(slot === "walk" ? walkSpriteSheetUrl : slot === "jump" ? jumpSpriteSheetUrl : slot === "attack" ? attackSpriteSheetUrl : idleSpriteSheetUrl) && (
+                    <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === slot ? 0.5 : 1 }}>
+                      <img
+                        src={(slot === "walk" ? walkSpriteSheetUrl : slot === "jump" ? jumpSpriteSheetUrl : slot === "attack" ? attackSpriteSheetUrl : idleSpriteSheetUrl)!}
+                        alt={`${getSheetLabel(slot)} sprite sheet`}
+                      />
+                    </div>
+                  )}
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => regenerateSpriteSheet(slot)}
+                    disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
+                    style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
+                  >
+                    {regeneratingSpriteSheet === slot ? "Regenerating..." : `Regen ${getSheetLabel(slot)}`}
+                  </button>
                 </div>
-              )}
-              <button
-                className="btn btn-secondary"
-                onClick={() => regenerateSpriteSheet("walk")}
-                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
-                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
-              >
-                {regeneratingSpriteSheet === "walk" ? "Regenerating..." : "Regen Walk"}
-              </button>
+              ))}
             </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump (4 frames)</h4>
-              {jumpSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "jump" ? 0.5 : 1 }}>
-                  <img src={jumpSpriteSheetUrl} alt="Jump sprite sheet" />
-                </div>
-              )}
-              <button
-                className="btn btn-secondary"
-                onClick={() => regenerateSpriteSheet("jump")}
-                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
-                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
-              >
-                {regeneratingSpriteSheet === "jump" ? "Regenerating..." : "Regen Jump"}
-              </button>
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack (4 frames)</h4>
-              {attackSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "attack" ? 0.5 : 1 }}>
-                  <img src={attackSpriteSheetUrl} alt="Attack sprite sheet" />
-                </div>
-              )}
-              <button
-                className="btn btn-secondary"
-                onClick={() => regenerateSpriteSheet("attack")}
-                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
-                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
-              >
-                {regeneratingSpriteSheet === "attack" ? "Regenerating..." : "Regen Attack"}
-              </button>
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Idle (4 frames)</h4>
-              {idleSpriteSheetUrl && (
-                <div className="image-preview" style={{ margin: 0, opacity: regeneratingSpriteSheet === "idle" ? 0.5 : 1 }}>
-                  <img src={idleSpriteSheetUrl} alt="Idle sprite sheet" />
-                </div>
-              )}
-              <button
-                className="btn btn-secondary"
-                onClick={() => regenerateSpriteSheet("idle")}
-                disabled={isGeneratingSpriteSheet || regeneratingSpriteSheet !== null || isRemovingBg}
-                style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.5rem", width: "100%" }}
-              >
-                {regeneratingSpriteSheet === "idle" ? "Regenerating..." : "Regen Idle"}
-              </button>
-            </div>
-          </div>
+          )}
 
           {(isGeneratingSpriteSheet || regeneratingSpriteSheet) && (
             <div className="loading">
@@ -1440,7 +1716,7 @@ export default function Home() {
             <button
               className="btn btn-success"
               onClick={removeBackground}
-              disabled={isRemovingBg || isGeneratingSpriteSheet || !walkSpriteSheetUrl || !jumpSpriteSheetUrl || !attackSpriteSheetUrl}
+              disabled={isRemovingBg || isGeneratingSpriteSheet || !walkSpriteSheetUrl || !jumpSpriteSheetUrl || !attackSpriteSheetUrl || (gameMode === "isometric" && (!isoAttackDownUrl || !isoAttackUpUrl || !isoAttackSideUrl))}
             >
               {isRemovingBg ? "Removing Backgrounds..." : "Remove Backgrounds →"}
             </button>
@@ -1468,38 +1744,33 @@ export default function Home() {
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk Cycle</h4>
-              {walkBgRemovedUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
-                  <img src={walkBgRemovedUrl} alt="Walk sprite sheet with background removed" />
+            {(["walk", "jump", "attack", ...(gameMode === "isometric" ? [] : ["idle"])] as ("walk" | "jump" | "attack" | "idle")[]).map((slot) => {
+              const url = slot === "walk" ? walkBgRemovedUrl : slot === "jump" ? jumpBgRemovedUrl : slot === "attack" ? attackBgRemovedUrl : idleBgRemovedUrl;
+              return (
+                <div key={slot}>
+                  <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{getSheetLabel(slot)}</h4>
+                  {url && (
+                    <div className="image-preview" style={{ margin: 0 }}>
+                      <img src={url} alt={`${getSheetLabel(slot)} sprite sheet with background removed`} />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump</h4>
-              {jumpBgRemovedUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
-                  <img src={jumpBgRemovedUrl} alt="Jump sprite sheet with background removed" />
-                </div>
-              )}
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack</h4>
-              {attackBgRemovedUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
-                  <img src={attackBgRemovedUrl} alt="Attack sprite sheet with background removed" />
-                </div>
-              )}
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Idle</h4>
-              {idleBgRemovedUrl && (
-                <div className="image-preview" style={{ margin: 0 }}>
-                  <img src={idleBgRemovedUrl} alt="Idle sprite sheet with background removed" />
-                </div>
-              )}
-            </div>
+              );
+            })}
+            {gameMode === "isometric" && ([
+              { label: "Attack Down", url: isoAttackDownBgUrl },
+              { label: "Attack Up", url: isoAttackUpBgUrl },
+              { label: "Attack Side", url: isoAttackSideBgUrl },
+            ]).map(({ label, url }) => (
+              <div key={label}>
+                <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{label}</h4>
+                {url && (
+                  <div className="image-preview" style={{ margin: 0 }}>
+                    <img src={url} alt={`${label} with background removed`} />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           <div className="button-group">
@@ -1527,30 +1798,15 @@ export default function Home() {
 
           {/* Tab buttons */}
           <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-            <button
-              className={`btn ${activeSheet === "walk" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setActiveSheet("walk")}
-            >
-              Walk Cycle
-            </button>
-            <button
-              className={`btn ${activeSheet === "jump" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setActiveSheet("jump")}
-            >
-              Jump
-            </button>
-            <button
-              className={`btn ${activeSheet === "attack" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setActiveSheet("attack")}
-            >
-              Attack
-            </button>
-            <button
-              className={`btn ${activeSheet === "idle" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setActiveSheet("idle")}
-            >
-              Idle
-            </button>
+            {(["walk", "jump", "attack", ...(gameMode === "isometric" ? [] : ["idle"])] as ("walk" | "jump" | "attack" | "idle")[]).map((slot) => (
+              <button
+                key={slot}
+                className={`btn ${activeSheet === slot ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setActiveSheet(slot)}
+              >
+                {getSheetLabel(slot)}
+              </button>
+            ))}
           </div>
 
           {/* Walk frame extraction */}
@@ -1621,7 +1877,7 @@ export default function Home() {
                   {walkExtractedFrames.map((frame, index) => (
                     <div key={index} className="frame-thumb">
                       <img src={frame.dataUrl} alt={`Walk frame ${index + 1}`} />
-                      <div className="frame-label">Walk {index + 1}</div>
+                      <div className="frame-label">{getSheetLabel("walk")} {index + 1}</div>
                     </div>
                   ))}
                 </div>
@@ -1697,7 +1953,7 @@ export default function Home() {
                   {jumpExtractedFrames.map((frame, index) => (
                     <div key={index} className="frame-thumb">
                       <img src={frame.dataUrl} alt={`Jump frame ${index + 1}`} />
-                      <div className="frame-label">Jump {index + 1}</div>
+                      <div className="frame-label">{getSheetLabel("jump")} {index + 1}</div>
                     </div>
                   ))}
                 </div>
@@ -1773,7 +2029,7 @@ export default function Home() {
                   {attackExtractedFrames.map((frame, index) => (
                     <div key={index} className="frame-thumb">
                       <img src={frame.dataUrl} alt={`Attack frame ${index + 1}`} />
-                      <div className="frame-label">Attack {index + 1}</div>
+                      <div className="frame-label">{getSheetLabel("attack")} {index + 1}</div>
                     </div>
                   ))}
                 </div>
@@ -1849,7 +2105,7 @@ export default function Home() {
                   {idleExtractedFrames.map((frame, index) => (
                     <div key={index} className="frame-thumb">
                       <img src={frame.dataUrl} alt={`Idle frame ${index + 1}`} />
-                      <div className="frame-label">Idle {index + 1}</div>
+                      <div className="frame-label">{getSheetLabel("idle")} {index + 1}</div>
                     </div>
                   ))}
                 </div>
@@ -1880,7 +2136,11 @@ export default function Home() {
             Preview & Export
           </h2>
 
-          <p className="description-text">Walk animation preview. Test both walk and jump in the sandbox!</p>
+          <p className="description-text">
+            {gameMode === "isometric"
+              ? "Walk animation preview. Test all directions in the sandbox!"
+              : "Walk animation preview. Test both walk and jump in the sandbox!"}
+          </p>
 
           <div className="animation-preview">
             <div className="animation-canvas-container">
@@ -1917,71 +2177,62 @@ export default function Home() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem", margin: "1rem 0" }}>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Walk Frames</h4>
-              <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
-                {walkExtractedFrames.map((frame, index) => (
-                  <div
-                    key={index}
-                    className={`frame-thumb ${currentFrameIndex === index ? "active" : ""}`}
-                    onClick={() => setCurrentFrameIndex(index)}
-                  >
-                    <img src={frame.dataUrl} alt={`Walk ${index + 1}`} />
-                    <div className="frame-label">{index + 1}</div>
+            {(["walk", "jump", "attack", ...(gameMode === "isometric" ? [] : ["idle"])] as ("walk" | "jump" | "attack" | "idle")[]).map((slot) => {
+              const frames = slot === "walk" ? walkExtractedFrames : slot === "jump" ? jumpExtractedFrames : slot === "attack" ? attackExtractedFrames : idleExtractedFrames;
+              return (
+                <div key={slot}>
+                  <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{getSheetLabel(slot)} Frames</h4>
+                  <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
+                    {frames.map((frame, index) => (
+                      <div
+                        key={index}
+                        className={`frame-thumb ${slot === "walk" && currentFrameIndex === index ? "active" : ""}`}
+                        onClick={slot === "walk" ? () => setCurrentFrameIndex(index) : undefined}
+                      >
+                        <img src={frame.dataUrl} alt={`${getSheetLabel(slot)} ${index + 1}`} />
+                        <div className="frame-label">{index + 1}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+              );
+            })}
+            {gameMode === "isometric" && ([
+              { label: "Atk Down", frames: isoAttackDownFrames },
+              { label: "Atk Up", frames: isoAttackUpFrames },
+              { label: "Atk Side", frames: isoAttackSideFrames },
+            ]).map(({ label, frames }) => (
+              <div key={label}>
+                <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>{label} Frames</h4>
+                <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
+                  {frames.map((frame, index) => (
+                    <div key={index} className="frame-thumb">
+                      <img src={frame.dataUrl} alt={`${label} ${index + 1}`} />
+                      <div className="frame-label">{index + 1}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Jump Frames</h4>
-              <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
-                {jumpExtractedFrames.map((frame, index) => (
-                  <div key={index} className="frame-thumb">
-                    <img src={frame.dataUrl} alt={`Jump ${index + 1}`} />
-                    <div className="frame-label">{index + 1}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Attack Frames</h4>
-              <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
-                {attackExtractedFrames.map((frame, index) => (
-                  <div key={index} className="frame-thumb">
-                    <img src={frame.dataUrl} alt={`Attack ${index + 1}`} />
-                    <div className="frame-label">{index + 1}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h4 style={{ marginBottom: "0.5rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Idle Frames</h4>
-              <div className="frames-preview" style={{ margin: 0, justifyContent: "flex-start" }}>
-                {idleExtractedFrames.map((frame, index) => (
-                  <div key={index} className="frame-thumb">
-                    <img src={frame.dataUrl} alt={`Idle ${index + 1}`} />
-                    <div className="frame-label">{index + 1}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
 
           <div className="export-section">
             <h3 style={{ marginBottom: "0.75rem" }}>Export</h3>
             <div className="export-options">
               <button className="btn btn-primary" onClick={exportWalkSpriteSheet}>
-                Walk Sheet
+                {getSheetLabel("walk")} Sheet
               </button>
               <button className="btn btn-primary" onClick={exportJumpSpriteSheet}>
-                Jump Sheet
+                {getSheetLabel("jump")} Sheet
               </button>
               <button className="btn btn-primary" onClick={exportAttackSpriteSheet}>
-                Attack Sheet
+                {getSheetLabel("attack")} Sheet
               </button>
-              <button className="btn btn-primary" onClick={exportIdleSpriteSheet}>
-                Idle Sheet
-              </button>
+              {gameMode !== "isometric" && (
+                <button className="btn btn-primary" onClick={exportIdleSpriteSheet}>
+                  {getSheetLabel("idle")} Sheet
+                </button>
+              )}
               <button className="btn btn-secondary" onClick={exportAllFrames}>
                 All Frames
               </button>
@@ -2014,97 +2265,147 @@ export default function Home() {
           </h2>
 
           <p className="description-text">
-            Walk, jump, and attack with your character! Use the keyboard to control movement.
+            {gameMode === "isometric"
+              ? "Explore the world with your character! Use WASD or arrow keys to move in all directions."
+              : "Walk, jump, and attack with your character! Use the keyboard to control movement."}
           </p>
 
-          {/* Background mode tabs */}
-          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-            <button
-              className={`btn ${backgroundMode === "default" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setBackgroundMode("default")}
-            >
-              Default Background
-            </button>
-            <button
-              className={`btn ${backgroundMode === "custom" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setBackgroundMode("custom")}
-            >
-              Custom Background
-            </button>
-          </div>
+          {/* Side-scroller background controls */}
+          {gameMode === "side-scroller" && (
+            <>
+              {/* Background mode tabs */}
+              <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+                <button
+                  className={`btn ${backgroundMode === "default" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setBackgroundMode("default")}
+                >
+                  Default Background
+                </button>
+                <button
+                  className={`btn ${backgroundMode === "custom" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setBackgroundMode("custom")}
+                >
+                  Custom Background
+                </button>
+              </div>
 
-          {/* Custom background generation UI */}
-          {backgroundMode === "custom" && (
+              {/* Custom background generation UI */}
+              {backgroundMode === "custom" && (
+                <div style={{ marginBottom: "1rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: "8px" }}>
+                  {!customBackgroundLayers.layer1Url ? (
+                    <>
+                      <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                        Generate a custom parallax background that matches your character&apos;s world.
+                      </p>
+                      <button
+                        className="btn btn-success"
+                        onClick={generateBackground}
+                        disabled={isGeneratingBackground}
+                      >
+                        {isGeneratingBackground ? "Generating Background..." : "Generate Custom Background"}
+                      </button>
+                      {isGeneratingBackground && (
+                        <div className="loading" style={{ marginTop: "1rem" }}>
+                          <FalSpinner />
+                          <span className="loading-text">Creating 3-layer parallax background (this may take a moment)...</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                        Custom background generated! Click on a layer to regenerate just that one.
+                      </p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 1 (Sky)</div>
+                          <img src={customBackgroundLayers.layer1Url} alt="Background layer" style={{ width: "100%", borderRadius: "4px", opacity: regeneratingLayer === 1 ? 0.5 : 1 }} />
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => regenerateBackgroundLayer(1)}
+                            disabled={isGeneratingBackground || regeneratingLayer !== null}
+                            style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                          >
+                            {regeneratingLayer === 1 ? "..." : "Regen"}
+                          </button>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 2 (Mid)</div>
+                          <img src={customBackgroundLayers.layer2Url!} alt="Midground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 2 ? 0.5 : 1 }} />
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => regenerateBackgroundLayer(2)}
+                            disabled={isGeneratingBackground || regeneratingLayer !== null}
+                            style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                          >
+                            {regeneratingLayer === 2 ? "..." : "Regen"}
+                          </button>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 3 (Front)</div>
+                          <img src={customBackgroundLayers.layer3Url!} alt="Foreground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 3 ? 0.5 : 1 }} />
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => regenerateBackgroundLayer(3)}
+                            disabled={isGeneratingBackground || regeneratingLayer !== null}
+                            style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
+                          >
+                            {regeneratingLayer === 3 ? "..." : "Regen"}
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={generateBackground}
+                        disabled={isGeneratingBackground || regeneratingLayer !== null}
+                        style={{ fontSize: "0.85rem" }}
+                      >
+                        {isGeneratingBackground ? "Regenerating All..." : "Regenerate All Layers"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Isometric map controls */}
+          {gameMode === "isometric" && (
             <div style={{ marginBottom: "1rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: "8px" }}>
-              {!customBackgroundLayers.layer1Url ? (
+              {!isometricMapUrl ? (
                 <>
                   <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                    Generate a custom parallax background that matches your character&apos;s world.
+                    Generate an isometric world map for your character to explore.
                   </p>
                   <button
                     className="btn btn-success"
-                    onClick={generateBackground}
+                    onClick={generateIsometricMap}
                     disabled={isGeneratingBackground}
                   >
-                    {isGeneratingBackground ? "Generating Background..." : "Generate Custom Background"}
+                    {isGeneratingBackground ? "Generating Map..." : "Generate Isometric Map"}
                   </button>
                   {isGeneratingBackground && (
                     <div className="loading" style={{ marginTop: "1rem" }}>
                       <FalSpinner />
-                      <span className="loading-text">Creating 3-layer parallax background (this may take a moment)...</span>
+                      <span className="loading-text">Creating isometric world map...</span>
                     </div>
                   )}
                 </>
               ) : (
                 <>
                   <p style={{ marginBottom: "0.75rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                    Custom background generated! Click on a layer to regenerate just that one.
+                    Isometric map generated! Your character can explore the world below.
                   </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 1 (Sky)</div>
-                      <img src={customBackgroundLayers.layer1Url} alt="Background layer" style={{ width: "100%", borderRadius: "4px", opacity: regeneratingLayer === 1 ? 0.5 : 1 }} />
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => regenerateBackgroundLayer(1)}
-                        disabled={isGeneratingBackground || regeneratingLayer !== null}
-                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
-                      >
-                        {regeneratingLayer === 1 ? "..." : "Regen"}
-                      </button>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 2 (Mid)</div>
-                      <img src={customBackgroundLayers.layer2Url!} alt="Midground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 2 ? 0.5 : 1 }} />
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => regenerateBackgroundLayer(2)}
-                        disabled={isGeneratingBackground || regeneratingLayer !== null}
-                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
-                      >
-                        {regeneratingLayer === 2 ? "..." : "Regen"}
-                      </button>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>Layer 3 (Front)</div>
-                      <img src={customBackgroundLayers.layer3Url!} alt="Foreground layer" style={{ width: "100%", borderRadius: "4px", background: "#333", opacity: regeneratingLayer === 3 ? 0.5 : 1 }} />
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => regenerateBackgroundLayer(3)}
-                        disabled={isGeneratingBackground || regeneratingLayer !== null}
-                        style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem", marginTop: "0.25rem", width: "100%" }}
-                      >
-                        {regeneratingLayer === 3 ? "..." : "Regen"}
-                      </button>
-                    </div>
+                  <div style={{ marginBottom: "0.75rem" }}>
+                    <img src={isometricMapUrl} alt="Isometric map" style={{ width: "100%", maxWidth: "400px", borderRadius: "4px", opacity: isGeneratingBackground ? 0.5 : 1 }} />
                   </div>
                   <button
                     className="btn btn-secondary"
-                    onClick={generateBackground}
-                    disabled={isGeneratingBackground || regeneratingLayer !== null}
+                    onClick={generateIsometricMap}
+                    disabled={isGeneratingBackground}
                     style={{ fontSize: "0.85rem" }}
                   >
-                    {isGeneratingBackground ? "Regenerating All..." : "Regenerate All Layers"}
+                    {isGeneratingBackground ? "Regenerating..." : "Regenerate Map"}
                   </button>
                 </>
               )}
@@ -2118,19 +2419,41 @@ export default function Home() {
                 <span className="loading-text">Loading sandbox...</span>
               </div>
             }>
-              <PixiSandbox
-                walkFrames={walkExtractedFrames}
-                jumpFrames={jumpExtractedFrames}
-                attackFrames={attackExtractedFrames}
-                idleFrames={idleExtractedFrames}
-                fps={fps}
-                customBackgroundLayers={backgroundMode === "custom" ? customBackgroundLayers : undefined}
-              />
+              {gameMode === "isometric" ? (
+                <IsometricSandbox
+                  walkDownFrames={walkExtractedFrames}
+                  walkUpFrames={jumpExtractedFrames}
+                  walkLeftFrames={attackExtractedFrames}
+                  walkRightFrames={idleExtractedFrames}
+                  attackDownFrames={isoAttackDownFrames}
+                  attackUpFrames={isoAttackUpFrames}
+                  attackSideFrames={isoAttackSideFrames}
+                  fps={fps}
+                  mapUrl={isometricMapUrl}
+                />
+              ) : (
+                <PixiSandbox
+                  walkFrames={walkExtractedFrames}
+                  jumpFrames={jumpExtractedFrames}
+                  attackFrames={attackExtractedFrames}
+                  idleFrames={idleExtractedFrames}
+                  fps={fps}
+                  customBackgroundLayers={backgroundMode === "custom" ? customBackgroundLayers : undefined}
+                />
+              )}
             </Suspense>
           </div>
 
           <div className="keyboard-hint" style={{ marginTop: "1rem" }}>
-            <kbd>A</kbd>/<kbd>←</kbd> walk left | <kbd>D</kbd>/<kbd>→</kbd> walk right | <kbd>W</kbd>/<kbd>↑</kbd> jump | <kbd>J</kbd> attack
+            {gameMode === "isometric" ? (
+              <>
+                <kbd>W</kbd>/<kbd>↑</kbd> up | <kbd>S</kbd>/<kbd>↓</kbd> down | <kbd>A</kbd>/<kbd>←</kbd> left | <kbd>D</kbd>/<kbd>→</kbd> right | <kbd>J</kbd> attack
+              </>
+            ) : (
+              <>
+                <kbd>A</kbd>/<kbd>←</kbd> walk left | <kbd>D</kbd>/<kbd>→</kbd> walk right | <kbd>W</kbd>/<kbd>↑</kbd> jump | <kbd>J</kbd> attack
+              </>
+            )}
           </div>
 
           <div className="animation-controls" style={{ marginTop: "1rem" }}>
@@ -2171,8 +2494,19 @@ export default function Home() {
               setCharacterPrompt("");
               setInputImageUrl("");
               setCharacterInputMode("text");
+              setGameMode("side-scroller");
               setBackgroundMode("default");
               setCustomBackgroundLayers({ layer1Url: null, layer2Url: null, layer3Url: null });
+              setIsometricMapUrl(null);
+              setIsoAttackDownUrl(null);
+              setIsoAttackUpUrl(null);
+              setIsoAttackSideUrl(null);
+              setIsoAttackDownBgUrl(null);
+              setIsoAttackUpBgUrl(null);
+              setIsoAttackSideBgUrl(null);
+              setIsoAttackDownFrames([]);
+              setIsoAttackUpFrames([]);
+              setIsoAttackSideFrames([]);
             }}>
               Start New Sprite
             </button>

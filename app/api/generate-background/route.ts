@@ -37,6 +37,24 @@ Create the closest foreground elements (ground, grass, rocks, platforms - whatev
 Style: Pixel art matching the other images.
 IMPORTANT: Use a transparent background (checkerboard pattern) so this layer can overlay the others.`;
 
+const ISOMETRIC_MAP_PROMPT = (characterPrompt: string) =>
+  `Create a large, detailed top-down isometric pixel art game world map for a character: "${characterPrompt}". Do not place the character themselves on the map.
+
+Style: Stardew Valley / Pokemon / classic RPG top-down map, 3/4 overhead perspective.
+
+The map should include a cohesive world with:
+- Winding dirt/stone paths connecting areas
+- Grassy fields and meadows
+- Trees, bushes, and flowers
+- A small body of water (pond, river, or stream)
+- A few small buildings or structures that fit the character's world
+- Rocky areas or hills
+- Various terrain types for visual interest
+
+This is a single large continuous map image (NOT tiled, NOT a tileset). It should look like a complete, explorable game world viewed from above.
+
+Use detailed 32-bit pixel art style. Make it colorful and inviting. Fill the entire image with map content - no empty borders.`;
+
 async function generateLayer(
   prompt: string,
   imageUrls: string[],
@@ -97,6 +115,7 @@ export async function POST(request: NextRequest) {
     const {
       characterImageUrl,
       characterPrompt,
+      mode,             // Optional: "side-scroller" | "isometric"
       regenerateLayer,  // Optional: 1, 2, or 3 to regenerate only that layer
       existingLayers,   // Optional: { layer1Url, layer2Url, layer3Url } for single layer regen
     } = await request.json();
@@ -106,6 +125,21 @@ export async function POST(request: NextRequest) {
         { error: "Character image URL and prompt are required" },
         { status: 400 }
       );
+    }
+
+    // Isometric map generation - single large map image
+    if (mode === "isometric") {
+      console.log("Generating isometric map...");
+      const map = await generateLayer(
+        ISOMETRIC_MAP_PROMPT(characterPrompt),
+        [characterImageUrl],
+        "1:1"
+      );
+      return NextResponse.json({
+        mapUrl: map.url,
+        width: map.width,
+        height: map.height,
+      });
     }
 
     // Single layer regeneration
